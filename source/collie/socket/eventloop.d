@@ -39,7 +39,7 @@ static if (CustomTimer)
 @trusted class EventLoopImpl(T) if (is(T == class)) //用定义别名的方式
 {
     static if (CustomTimer)
-        alias CTimerWheel = ITimingWheel!IAllocator;
+        alias TimerWheel = ITimingWheel!IAllocator;
 
     this()
     {
@@ -47,7 +47,7 @@ static if (CustomTimer)
         _mutex = collieAllocator.make!Mutex();
         _run = false;
         static if (CustomTimer)
-            _timeWheel = collieAllocator.make!CTimerWheel(CustomTimerWheelSize,collieAllocator);
+            _timeWheel = collieAllocator.make!TimerWheel(CustomTimerWheelSize,collieAllocator);
     }
 
     ~this()
@@ -242,7 +242,7 @@ private:
     ThreadID _thID;
     static if (CustomTimer)
     {
-        CTimerWheel _timeWheel;
+        TimerWheel _timeWheel;
         long _nextTime;
 
         int doWheel()

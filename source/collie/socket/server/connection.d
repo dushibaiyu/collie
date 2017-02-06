@@ -16,7 +16,7 @@ import collie.socket.eventloop;
 import collie.utils.task;
 import collie.common;
 
-@trusted abstract class ServerConnection : WheelTimer
+@trusted abstract class ServerConnection : IWheelTimer!IAllocator
 {
 	this(TCPSocket socket)
 	{

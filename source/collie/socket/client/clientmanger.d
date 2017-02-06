@@ -30,6 +30,7 @@ import collie.utils.task;
 	alias ConCallBack = void delegate(ClientConnection);
 	alias LinkInfo = TLinkInfo!(ConCallBack,TCPClientManger);
 	alias NewConnection = ClientConnection delegate(TCPClient);
+	alias TimerWheel = ITimingWheel!IAllocator;
 
 	this(EventLoop loop)
 	{
@@ -93,13 +94,13 @@ import collie.utils.task;
 			time = _timeout * 1000 / 180;
 		}
 		
-		_wheel = collieAllocator.make!TimingWheel(whileSize);
+		_wheel = collieAllocator.make!TimerWheel(whileSize,collieAllocator);
 		_timer = collieAllocator.make!Timer(_loop);
 		_timer.setCallBack(&onTimer);
 		if(_loop.isInLoopThread()){
 			_timer.start(time);
 		} else {
-			_loop.post(newTask(&_timer.start,time));
+			_loop.post(allocTask(collieAllocator,&_timer.start,time));
 		}
 	}
 
@@ -114,7 +115,7 @@ import collie.utils.task;
 		if(_loop.isInLoopThread()){
 			_postConmnect(info);
 		} else {
-			_loop.post(newTask(&_postConmnect,info));
+			_loop.post(allocTask(collieAllocator,&_postConmnect,info));
 		}
 	}
 
@@ -144,7 +145,7 @@ import collie.utils.task;
 				_wheel.addNewTimer(con);
 			con.onActive();
 		} else {
-			gcFree(info.client);
+			dispose(collieAllocator,info.client);
 			if(info.tryCount < _tryCout) {
 				info.tryCount ++;
 				connect(info);
@@ -189,14 +190,14 @@ private:
 
 	EventLoop _loop;
 	Timer _timer;
-	TimingWheel _wheel;
+	TimerWheel _wheel;
 	TLinkManger!(ConCallBack,TCPClientManger) _waitConnect;
 
 	NewConnection _cback;
 	ClientCreatorCallBack _oncreator;
 }
 
-@trusted abstract class ClientConnection : WheelTimer
+@trusted abstract class ClientConnection : IWheelTimer!IAllocator
 {
 	this(TCPClient client)
 	{
@@ -231,7 +232,7 @@ private:
 		if(_loop.isInLoopThread()){
 			_postWrite(data,cback);
 		} else {
-			_loop.post(newTask(&_postWrite,data,cback));
+			_loop.post(allocTask(collieAllocator,&_postWrite,data,cback));
 		}
 	}
 
@@ -240,7 +241,7 @@ private:
 		if(_loop.isInLoopThread()){
 			rest();
 		} else {
-			_loop.post(newTask(&rest,0));
+			_loop.post(allocTask(collieAllocator,&rest,0));
 		}
 	}
 

@@ -13,11 +13,15 @@ import std.experimental.allocator;
 import smartref.common;
 
 alias TimingWheel = ITimingWheel!SmartGCAllocator;
+alias WheelTimer = TimingWheel.WheelTimer;
+alias NullWheelTimer = TimingWheel.NullWheelTimer;
 /**
     Timing Wheel manger Class
 */
 @trusted final class ITimingWheel(Allocator)
 {
+    alias WheelTimer = IWheelTimer!Allocator;
+    alias NullWheelTimer = INullWheelTimer!Allocator;
     /**
         constructor
         Params:
@@ -28,7 +32,7 @@ alias TimingWheel = ITimingWheel!SmartGCAllocator;
             _init(wheelSize);
         }
     } else {
-        this(uint wheelSize,auto ref Allocator alloc){
+        this(uint wheelSize,Allocator alloc){
             _alloc = alloc;
             _init(wheelSize);
         }
@@ -141,8 +145,11 @@ private:
 /**
     The timer parent's class.
 */
-@trusted abstract class WheelTimer
+@trusted abstract class IWheelTimer(Allocator)
 {
+    alias TimerWheel = ITimingWheel!Allocator;
+    alias WheelTimer = IWheelTimer!Allocator;
+
 	~this()
 	{
             stop();
@@ -190,14 +197,14 @@ private:
 private:
     WheelTimer _next = null;
     WheelTimer _prev = null;
-    TimingWheel _manger = null;
+    TimerWheel _manger = null;
     bool _oneShop = false;
 }
 
 private:
 
 /// the Header Timer in the wheel.
-@safe class NullWheelTimer : WheelTimer
+@safe class INullWheelTimer(Allocator) : IWheelTimer!Allocator
 {
     override void onTimeOut() nothrow
     {

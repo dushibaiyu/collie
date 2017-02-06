@@ -13,24 +13,34 @@ module collie.socket.server.tcpserver;
 import std.socket;
 
 import collie.common;
-
 import collie.socket.eventloop;
-import collie.utils.timingwheel;
-
 import collie.socket.acceptor;
 import collie.socket.tcpsocket;
 import collie.socket.timer;
 import collie.socket.server.connection;
 import collie.socket.server.exception;
+import collie.utils.timingwheel;
+import collie.utils.task;
 
 @trusted final class TCPServer
 {
 	alias NewConnection = ServerConnection delegate(EventLoop,Socket);
 	alias OnAceptorCreator = void delegate(Acceptor);
+	alias TimerWheel = ITimingWheel!IAllocator;
 
 	this(EventLoop loop)
 	{
 		_loop = loop;
+	}
+	~this(){
+		if(_acceptor)
+			dispose(collieAllocator,_acceptor);
+		if(_wheel)
+			dispose(collieAllocator,_wheel);
+		if(_timer)
+			dispose(collieAllocator,_timer);
+		if(_bind)
+			dispose(collieAllocator,_bind);
 	}
 
 	@property acceptor(){return _acceptor;}
@@ -43,7 +53,7 @@ import collie.socket.server.exception;
 		if(_acceptor !is null)
 			throw new SocketBindException("the server is areadly binded!");
 		_bind = addr;
-		_acceptor = new Acceptor(_loop,addr.addressFamily);
+		_acceptor = collieAllocator.make!Acceptor(_loop,addr.addressFamily);
 		if(ona) ona(_acceptor);
 		_acceptor.bind(_bind);
 	}
@@ -56,10 +66,7 @@ import collie.socket.server.exception;
 			throw new SocketServerException("Please set CallBack frist!");
 
 		_acceptor.setCallBack(&newConnect);
-		_loop.post((){
-				_acceptor.listen(block);
-				_acceptor.start();
-			});
+		_loop.post(allocTask(collieAllocator,&startListen,block));
 	}
 
 	void setNewConntionCallBack(NewConnection cback)
@@ -101,16 +108,16 @@ import collie.socket.server.exception;
 			time = _timeout * 1000 / 180;
 		}
 
-		_wheel = new TimingWheel(whileSize);
-		_timer = new Timer(_loop);
-		_timer.setCallBack((){_wheel.prevWheel();});
-		_loop.post((){ _timer.start(time);});
+		_wheel = collieAllocator.make!TimerWheel(whileSize,collieAllocator);
+		_timer = collieAllocator.make!Timer(_loop);
+		_timer.setCallBack(&prevWheel);
+		_loop.post(allocTask(collieAllocator,&_timer.start,time));
 	}
 
 	void close()
 	{
 		if(_acceptor)
-			_loop.post((){ _acceptor.close();});
+			_loop.post(&_acceptor.close);
 	}
 protected:
 	void newConnect(Socket socket)
@@ -123,6 +130,14 @@ protected:
 			_wheel.addNewTimer(connection);
 	}
 
+	void prevWheel(){
+		_wheel.prevWheel();
+	}
+
+	void startListen(int block){
+		_acceptor.listen(block);
+		_acceptor.start();
+	}
 private:
 	Acceptor _acceptor;
 	EventLoop _loop;
@@ -130,7 +145,7 @@ private:
 private:
 	NewConnection _cback;
 private:
-	TimingWheel _wheel;
+	TimerWheel _wheel;
 	Timer _timer;
 	uint _timeout;
 }
