@@ -14,6 +14,7 @@ import collie.utils.timingwheel;
 import collie.socket.tcpsocket;
 import collie.socket.eventloop;
 import collie.utils.task;
+import collie.common;
 
 @trusted abstract class ServerConnection : WheelTimer
 {
@@ -56,7 +57,7 @@ import collie.utils.task;
 		if(_loop.isInLoopThread()){
 			_postWrite(data,cback);
 		} else {
-			_loop.post(newTask(&_postWrite,data,cback));
+			_loop.post(allocTask(collieAllocator,&_postWrite,data,cback));
 		}
 	}
 
@@ -65,7 +66,7 @@ import collie.utils.task;
 		if(_loop.isInLoopThread()){
 			rest();
 		} else {
-			_loop.post(newTask(&rest,0));
+			_loop.post(allocTask(collieAllocator,&rest,0));
 		}
 	}
 	pragma(inline)

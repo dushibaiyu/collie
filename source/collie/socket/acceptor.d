@@ -36,12 +36,19 @@ alias AcceptCallBack = void delegate(Socket sock);
 
 	this(EventLoop loop, AddressFamily family)
 	{
-		_socket = new Socket(family, SocketType.STREAM, ProtocolType.TCP);
+		_socket = collieAllocator.make!Socket(family, SocketType.STREAM, ProtocolType.TCP);
 		_socket.blocking = false;
 		super(loop, TransportType.ACCEPT);
 		static if (IOMode == IO_MODE.iocp)
-			_buffer = new ubyte[2048];
+			_buffer = makeArray!ubyte(collieAllocator,2048);
 	}
+
+    ~this(){
+        onClose();
+        dispose(collieAllocator,_socket);
+        static if (IOMode == IO_MODE.iocp)
+            dispose(collieAllocator,_buffer);
+    }
 
     @property reusePort(bool use)
     {
@@ -155,7 +162,7 @@ protected:
                 if (fd == socket_t.init)
                     return;
 				collieCathException!false({
-	                    Socket sock = new Socket(fd, _socket.addressFamily);
+	                    Socket sock = collieAllocator.make!Socket(fd, _socket.addressFamily);
 	                    _callBack(sock);
 					}());
             }
@@ -171,7 +178,7 @@ protected:
         if (!isAlive)
             return;
         eventLoop.delEvent(_event);
-        delete _event;
+        collectException({dispose(collieAllocator,_event);}());
         _event = null;
         _socket.close();
     }
@@ -186,7 +193,7 @@ protected:
                 _iocp.operationType = IOCP_OP_TYPE.accept;
                 if (_inSocket is null)
                 {
-                    _inSocket = new Socket(_socket.addressFamily,
+                    _inSocket = collieAllocator.make!Socket(_socket.addressFamily,
                         SocketType.STREAM, ProtocolType.TCP);
                 }
 

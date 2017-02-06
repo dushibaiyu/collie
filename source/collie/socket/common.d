@@ -13,6 +13,7 @@ module collie.socket.common;
 //import core.memory;
 
 public import std.experimental.logger;
+public import collie.common;
 import std.experimental.allocator;
 
 enum IO_MODE
@@ -122,7 +123,7 @@ struct AsyncEvent
     {
         import core.memory;
 
-        AsyncEvent* pevent = new AsyncEvent(type, obj, fd, enread, enwrite, etMode,
+        AsyncEvent* pevent = collieAllocator.make!AsyncEvent(type, obj, fd, enread, enwrite, etMode,
             oneShot);
        // GC.setAttr(pevent, GC.BlkAttr.NO_MOVE);
         return pevent;
@@ -130,41 +131,15 @@ struct AsyncEvent
 
     pragma(inline) static void free(AsyncEvent* event)
     {
-        import core.memory;
-
-        GC.free(event);
+       // import core.memory;
+        dispose(collieAllocator,event);
+        //GC.free(event);
     }
 
     pragma(inline, true) @property isActive()
     {
         return _isActive;
     }
-
-//	static Address createAddress(AddressFamily family) //pure nothrow
-//	{
-//		Address result;
-//		switch(family)
-//		{
-//			static if (is(sockaddr_un))
-//			{
-//				case AddressFamily.UNIX:
-//				result = new UnixAddress();
-//				break;
-//			}
-//			
-//			case AddressFamily.INET:
-//				result = new InternetAddress();
-//				break;
-//				
-//			case AddressFamily.INET6:
-//				result = new Internet6Address();
-//				break;
-//				
-//			default:
-//				result = new UnknownAddress();
-//		}
-//		return result;
-//	}
 package:
     pragma(inline) @property isActive(bool active)
     {

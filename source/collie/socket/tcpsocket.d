@@ -31,13 +31,13 @@ alias TCPReadCallBack = void delegate(ubyte[] buffer);
     this(EventLoop loop, bool isIpV6 = false)
     {
 		auto family = isIpV6 ? AddressFamily.INET6 : AddressFamily.INET;
-		_socket = new Socket(family, SocketType.STREAM, ProtocolType.TCP);
+		_socket = collieAllocator.make!Socket(family, SocketType.STREAM, ProtocolType.TCP);
         this(loop, _socket);
     }
 
 	this(EventLoop loop, AddressFamily family)
 	{
-		_socket = new Socket(family, SocketType.STREAM, ProtocolType.TCP);
+		_socket = collieAllocator.make!Socket(family, SocketType.STREAM, ProtocolType.TCP);
 		this(loop, _socket);
 	}
 
@@ -46,7 +46,7 @@ alias TCPReadCallBack = void delegate(ubyte[] buffer);
         super(loop, TransportType.TCP);
         _socket = sock;
         _socket.blocking = false;
-        _readBuffer = new ubyte[TCP_READ_BUFFER_SIZE];
+        _readBuffer = makeArray!ubyte(collieAllocator,TCP_READ_BUFFER_SIZE);
         _event = AsyncEvent.create(AsynType.TCP, this, _socket.handle, true, true,
             true);
         static if (IO_MODE.iocp == IOMode)
@@ -62,15 +62,13 @@ alias TCPReadCallBack = void delegate(ubyte[] buffer);
 
     ~this()
     {
-		import core.memory;
         scope (exit)
         {
             AsyncEvent.free(_event);
             _readBuffer = null;
         }
-        _socket.destroy;
-		GC.free(cast(void *)_socket);
-        GC.free(_readBuffer.ptr);
+        dispose(collieAllocator,_socket);
+        dispose(collieAllocator,_readBuffer);
     }
 
     final override @property int fd()
@@ -126,7 +124,7 @@ alias TCPReadCallBack = void delegate(ubyte[] buffer);
 			if(cback) cback(data, 0);
             return;
         }
-        auto buffer = new WriteSite(data, cback);
+        auto buffer = collieAllocator.make!WriteSite(data, cback);
 
         static if (IOMode == IO_MODE.iocp)
         {
@@ -198,8 +196,7 @@ protected:
                     {
                         auto buf = _writeQueue.deQueue();
                         buf.doCallBack();
-                        import collie.utils.memory;
-                        gcFree(buf);
+                        dispose(collieAllocator,buf);
                     }
                     if (!_writeQueue.empty)
                         buffer = _writeQueue.front;
@@ -232,8 +229,7 @@ protected:
 						{
 							auto buf = _writeQueue.deQueue();
 							buf.doCallBack();
-							import collie.utils.memory;
-							gcFree(buf);
+                            dispose(collieAllocator,buf);
 						}
 						continue;
 					}
@@ -272,8 +268,7 @@ protected:
         {
             auto buf = _writeQueue.deQueue();
             buf.doCallBack();
-            import collie.utils.memory;
-			collectException(gcFree(buf));
+            collectException({dispose(collieAllocator,buf);}());
         }
         try
         {

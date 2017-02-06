@@ -1,8 +1,9 @@
 ﻿module collie.utils.task;
 
 import std.traits;
+import std.experimental.allocator;
 
-ReturnType!F run(F, Args...)(F fpOrDelegate, ref Args args)
+ReturnType!F run(F, Args...)(F fpOrDelegate, auto ref Args args)
 {
 	return fpOrDelegate(args);
 }
@@ -29,7 +30,6 @@ private:
 
 @trusted final class Task(alias fun,Args...) : AbstractTask
 {
-private :
 	static if (Args.length > 0){
 		this(Args args){
 			_args = args;
@@ -43,7 +43,7 @@ private :
 		}
 		alias _args = void;
 	}
-
+private:
 	static void impl(AbstractTask myTask){
 		auto  myCastedTask = cast(typeof(this)) myTask;
 		if(myCastedTask is null) return;
@@ -51,12 +51,22 @@ private :
 	}
 }
 
+@trusted auto allocTask(alias fun,Alloc,Args...)(auto ref Alloc alloc,auto ref Args args){
+	return  make!(Task!(fun,Args))(alloc,args);
+}
 
-@trusted auto newTask(alias fun,Args...)(Args args){
+@trusted auto allocTask(F,Alloc, Args...)(auto ref Alloc alloc,F delegateOrFp, auto ref  Args args)
+	if (is(typeof(delegateOrFp(args))))
+{
+	//return allocTask!(run)(alloc,delegateOrFp,args);
+	return make!(Task!(run, F, Args))(alloc,delegateOrFp, args);
+}
+
+@trusted auto newTask(alias fun,Args...)(auto ref Args args){
 	return new Task!(fun,Args)(args);
 }
 
-@trusted auto newTask(F, Args...)(F delegateOrFp, Args args)
+@trusted auto newTask(F, Args...)(F delegateOrFp,auto ref  Args args)
 	if (is(typeof(delegateOrFp(args))))
 {
 	return new Task!(run, F, Args)(delegateOrFp, args);

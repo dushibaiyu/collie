@@ -41,8 +41,8 @@ import deimos.openssl.bio;
 			_ssl = ssl;
 			_bioIn = bioRead;
 			_bioOut = bioWrite;
-			_rBuffer = new ubyte[TCP_READ_BUFFER_SIZE];
-			_wBuffer = new ubyte[TCP_READ_BUFFER_SIZE];
+			_rBuffer = makeArray!ubyte(collieAlloctor,TCP_READ_BUFFER_SIZE);
+			_wBuffer = makeArray!ubyte(collieAlloctor,TCP_READ_BUFFER_SIZE);
 		}
 	} else {
 		this(EventLoop loop, Socket sock, SSL* ssl)
@@ -62,9 +62,8 @@ import deimos.openssl.bio;
 			_bioOut = null;
 		}
 		static if (IOMode == IO_MODE.iocp){
-			import core.memory;
-			GC.free(_rBuffer.ptr);
-			GC.free(_wBuffer.ptr);
+			dispose(collieAllocator,_rBuffer);
+			dispose(collieAllocator,_wBuffer);
 		}
 	}
 

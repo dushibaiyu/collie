@@ -11,23 +11,33 @@
 module collie.socket.client.linkinfo;
 
 import std.socket;
+import std.traits : hasMember;
 import collie.socket.tcpclient;
 
-struct TLinkInfo(TCallBack) if(is(TCallBack == delegate))
+struct TLinkInfo(TCallBack,Manger = void) 
+	if(is(TCallBack == delegate) && ( (is(Manger == class) && hasMember!(Manger,"connectCallBack") ) || is(Manger == void)))
 {
 	TCPClient client;
 	Address addr;
 	uint tryCount = 0;
 	TCallBack cback;
 
+	static if(!is(Manger == void)){
+		Manger manger;
+		void connectCallBack(bool state){
+			if(manger)
+				manger.connectCallBack(&this, state);
+		}
+	}
+
 private:
-	TLinkInfo!(TCallBack) * prev;
-	TLinkInfo!(TCallBack) * next;
+	TLinkInfo!(TCallBack,Manger) * prev;
+	TLinkInfo!(TCallBack,Manger) * next;
 }
 
-struct TLinkManger(TCallBack) if(is(TCallBack == delegate))
+struct TLinkManger(TCallBack,Manger = void)
 {
-	alias LinkInfo = TLinkInfo!TCallBack;
+	alias LinkInfo = TLinkInfo!(TCallBack,Manger);
 
 	void addInfo(LinkInfo * info)
 	{

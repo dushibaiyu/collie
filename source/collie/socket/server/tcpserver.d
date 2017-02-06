@@ -12,6 +12,8 @@ module collie.socket.server.tcpserver;
 
 import std.socket;
 
+import collie.common;
+
 import collie.socket.eventloop;
 import collie.utils.timingwheel;
 

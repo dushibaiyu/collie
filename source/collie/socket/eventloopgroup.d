@@ -17,6 +17,8 @@ import collie.socket.eventloop;
 import collie.socket.common;
 import collie.utils.functional;
 
+//TODO: hash map;
+
 @trusted final class EventLoopGroup
 {
     this(uint size = (totalCPUs - 1), int waitTime = 2000)

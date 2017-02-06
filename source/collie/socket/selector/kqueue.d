@@ -36,14 +36,14 @@ static if (IOMode == IO_MODE.kqueue)
             {
                 errnoEnforce("kqueue failed");
             }
-            _event = new EventChannel();
+            _event = collieAllocator.make!EventChannel();
             addEvent(_event._event);
         }
 
         ~this()
         {
             .close(_efd);
-            _event.destroy;
+            dispose(collieAllocator,_event);
         }
 
         /** 添加一个Channel对象到事件队列中。

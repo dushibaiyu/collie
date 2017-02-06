@@ -12,6 +12,7 @@ module collie.socket.client.client;
 
 import std.socket;
 
+import collie.common;
 import collie.socket.eventloop;
 import collie.socket.timer;
 import collie.socket.tcpclient;
@@ -28,6 +29,12 @@ import collie.utils.task;
 	this(EventLoop loop) 
 	{
 		_loop = loop;
+	}
+	~this(){
+		if(_info.client)
+			dispose(collieAllocator,_info.client);
+		if(_timer)
+			dispose(collieAllocator,_timer);
 	}
 
 	final bool isAlive() @trusted
@@ -59,7 +66,7 @@ import collie.utils.task;
 		if(_loop.isInLoopThread()){
 			_postWrite(data,cback);
 		} else {
-			_loop.post(newTask(&_postWrite,data,cback));
+			_loop.post(allocTask(collieAllocator,&_postWrite,data,cback));
 		}
 	}
 
@@ -88,7 +95,7 @@ protected:
 		if(_timer)
 			_timer.stop();
 		else {
-			_timer = new Timer(_loop);
+			_timer = collieAllocator.make!Timer(_loop);
 			_timer.setCallBack(&onTimeout);
 		}
 		_timer.start(_timeout * 1000);
@@ -96,7 +103,7 @@ protected:
 private:
 	final void connect()
 	{
-		_info.client = new TCPClient(_loop);
+		_info.client = collieAllocator.make!TCPClient(_loop);
 		if(_info.cback)
 			_info.cback(_info.client);
 		_info.client.setConnectCallBack(&connectCallBack);
@@ -110,8 +117,7 @@ private:
 			_info.cback = null;
 			onActive();
 		} else {
-			import collie.utils.memory;
-			gcFree(_info.client);
+			dispose(collieAllocator,_info.client);
 			_info.client = null;
 			if(_info.tryCount < _tryCount){
 				_info.tryCount ++;
@@ -126,13 +132,11 @@ private:
 	}
 	final void doClose()
 	{
-		import collie.utils.memory;
 		import collie.utils.task;
-		import collie.utils.functional;
 		if(_timer)
 			_timer.stop();
 		auto client = _info.client;
-		_loop.post!true(newTask!gcFree(client));
+		_loop.post!true(allocTask!freeTcpClient(collieAllocator,client));
 		_info.client = null;
 		onClose();
 	}
@@ -164,3 +168,7 @@ private
 	uint _timeout;
 }
 
+@trusted void freeTcpClient(TCPClient client)
+{
+	collieAllocator.dispose(client);
+}

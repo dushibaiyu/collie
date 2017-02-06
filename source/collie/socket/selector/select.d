@@ -30,16 +30,19 @@ static if(IOMode == IO_MODE.select)
 	{
 		this()
 		{
-			_event = new EventChannel();
+			_event = collieAllocator.make!EventChannel();
 			addEvent(_event._event);
-			_readSet = new SocketSet();
-			_writeSet = new SocketSet();
-			_errorSet = new SocketSet();
+			_readSet = collieAllocator.make!SocketSet();
+			_writeSet = collieAllocator.make!SocketSet();
+			_errorSet = collieAllocator.make!SocketSet();
 		}
 		
 		~this()
 		{
-			_event.destroy;
+			dispose(collieAllocator,_event);
+			dispose(collieAllocator,_readSet);
+			dispose(collieAllocator,_writeSet);
+			dispose(collieAllocator,_errorSet);
 		}
 		
 		bool addEvent(AsyncEvent* event) nothrow

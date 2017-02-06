@@ -21,6 +21,7 @@ import std.algorithm.mutation;
 import std.stdio;
 import std.string;
 import std.exception;
+import std.experimental.allocator;
 import std.experimental.allocator.gc_allocator;
 
 import collie.socket.common;
@@ -37,18 +38,24 @@ static if (CustomTimer)
 
 @trusted class EventLoopImpl(T) if (is(T == class)) //用定义别名的方式
 {
+    static if (CustomTimer)
+        alias CTimerWheel = ITimingWheel!IAllocator;
+
     this()
     {
-        _poll = new T();
-        _mutex = new Mutex();
+        _poll = collieAllocator.make!T();
+        _mutex = collieAllocator.make!Mutex();
         _run = false;
         static if (CustomTimer)
-            _timeWheel = new TimingWheel(CustomTimerWheelSize);
+            _timeWheel = collieAllocator.make!CTimerWheel(CustomTimerWheelSize,collieAllocator);
     }
 
     ~this()
     {
-        _poll.destroy;
+        dispose(collieAllocator,_poll);
+        dispose(collieAllocator,_mutex);
+        static if (CustomTimer)
+            dispose(collieAllocator,_timeWheel);
     }
 
     /** 开始执行事件等待。
@@ -113,7 +120,7 @@ static if (CustomTimer)
 		}
         synchronized (_mutex)
         {
-			_taskList.enQueue(newTask!(CallBack)(cback));
+			_taskList.enQueue(allocTask(collieAllocator,cback));
         }
         weakUp();
     }
@@ -123,9 +130,8 @@ static if (CustomTimer)
 		static if(!MustInQueue) {
 			if (isInLoopThread())
 			{
-				import collie.utils.memory;
 				task.job();
-				gcFree(task);
+                dispose(collieAllocator,task);
 				return;
 			}
 		}
@@ -146,7 +152,7 @@ static if (CustomTimer)
             {
                 try
                 {
-                    CWheelTimer timer = new CWheelTimer(event);
+                    CWheelTimer timer = collieAllocator.make!CWheelTimer(event);
                     _timeWheel.addNewTimer(timer, timer.wheelSize());
                     event.timer = timer;
                     event.isActive(true);
@@ -184,7 +190,7 @@ static if (CustomTimer)
             {
 				import collie.utils.memory;
                 event.timer.stop();
-				collectException(gcFree(event.timer));
+                dispose(collieAllocator,event.timer);
                 event.timer = null;
                 event.isActive(false);
                 return true;
@@ -224,7 +230,7 @@ protected:
 				import core.stdc.stdlib;
 				exit(-1);
 			}
-			gcFree(fp);
+            dispose(collieAllocator,fp);
         }
     }
 
@@ -236,7 +242,7 @@ private:
     ThreadID _thID;
     static if (CustomTimer)
     {
-        TimingWheel _timeWheel;
+        CTimerWheel _timeWheel;
         long _nextTime;
 
         int doWheel()

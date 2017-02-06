@@ -45,7 +45,7 @@ final class EpollLoop
             errnoEnforce("epoll_create1 failed");
         }
 
-        _event = new EventChannel();
+        _event = collieAllocator.make!EventChannel();
         addEvent(_event._event);
     }
 
@@ -54,7 +54,7 @@ final class EpollLoop
     ~this()
     {
         .close(_efd);
-        _event.destroy;
+        dispose(collieAllocator,_event);
     }
 
     /** 添加一个Channel对象到事件队列中。

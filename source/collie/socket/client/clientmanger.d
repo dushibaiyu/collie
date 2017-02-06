@@ -12,6 +12,7 @@ module collie.socket.client.clientmanger;
 
 import std.socket;
 
+import collie.common;
 import collie.socket.eventloop;
 import collie.socket.timer;
 import collie.socket.tcpclient;
@@ -27,12 +28,19 @@ import collie.utils.task;
 {
 	alias ClientCreatorCallBack = void delegate(TCPClient);
 	alias ConCallBack = void delegate(ClientConnection);
-	alias LinkInfo = TLinkInfo!ConCallBack;
+	alias LinkInfo = TLinkInfo!(ConCallBack,TCPClientManger);
 	alias NewConnection = ClientConnection delegate(TCPClient);
 
 	this(EventLoop loop)
 	{
 		_loop = loop;
+	}
+
+	~this(){
+		if(_wheel)
+			dispose(collieAllocator,_wheel);
+		if(_timer)
+			dispose(collieAllocator,_timer);
 	}
 
 	void setClientCreatorCallBack(ClientCreatorCallBack cback)
@@ -85,8 +93,8 @@ import collie.utils.task;
 			time = _timeout * 1000 / 180;
 		}
 		
-		_wheel = new TimingWheel(whileSize);
-		_timer = new Timer(_loop);
+		_wheel = collieAllocator.make!TimingWheel(whileSize);
+		_timer = collieAllocator.make!Timer(_loop);
 		_timer.setCallBack(&onTimer);
 		if(_loop.isInLoopThread()){
 			_timer.start(time);
@@ -99,7 +107,7 @@ import collie.utils.task;
 	{
 		if(_cback is null)
 			throw new SocketClientException("must set NewConnection callback ");
-		LinkInfo * info = new LinkInfo();
+		LinkInfo * info = collieAllocator.make!LinkInfo();
 		info.addr = addr;
 		info.tryCount = 0;
 		info.cback = cback;
@@ -117,22 +125,7 @@ import collie.utils.task;
 		}
 	}
 
-protected:
-	void connect(LinkInfo * info)
-	{
-		import collie.utils.functional;
-		info.client = new TCPClient(_loop);
-		if(_oncreator)
-			_oncreator(info.client);
-		info.client.setCloseCallBack(&tmpCloseCallBack);
-		info.client.setConnectCallBack(bind(&connectCallBack,info));
-		info.client.setReadCallBack(&tmpReadCallBack);
-		info.client.connect(info.addr);
-	}
-
-	void tmpReadCallBack(ubyte[]){}
-	void tmpCloseCallBack(){}
-
+// Use in link info, not call!
 	void connectCallBack(LinkInfo * info,bool state)
 	{
 		import std.exception;
@@ -140,7 +133,7 @@ protected:
 		if(state) {
 			scope(exit){
 				_waitConnect.rmInfo(info);
-				gcFree(info);
+				dispose(collieAllocator,info);
 			}
 			ClientConnection con;
 			collectException(_cback(info.client),con);
@@ -158,12 +151,28 @@ protected:
 			} else {
 				auto cback = info.cback;
 				_waitConnect.rmInfo(info);
-				gcFree(info);
+				dispose(collieAllocator,info);
 				if(cback)
 					cback(null);
 			}
 		}
 	}
+protected:
+	void connect(LinkInfo * info)
+	{
+		import collie.utils.functional;
+		info.client = collieAllocator.make!TCPClient(_loop);
+		if(_oncreator)
+			_oncreator(info.client);
+		info.manger = this;
+		info.client.setCloseCallBack(&tmpCloseCallBack);
+		info.client.setConnectCallBack(&info.connectCallBack);
+		info.client.setReadCallBack(&tmpReadCallBack);
+		info.client.connect(info.addr);
+	}
+
+	void tmpReadCallBack(ubyte[]){}
+	void tmpCloseCallBack(){}
 
 	void onTimer(){
 		_wheel.prevWheel();
@@ -181,7 +190,7 @@ private:
 	EventLoop _loop;
 	Timer _timer;
 	TimingWheel _wheel;
-	TLinkManger!ConCallBack _waitConnect;
+	TLinkManger!(ConCallBack,TCPClientManger) _waitConnect;
 
 	NewConnection _cback;
 	ClientCreatorCallBack _oncreator;

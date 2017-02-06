@@ -36,10 +36,10 @@ alias UDPReadCallBack = void delegate(ubyte[] buffer, Address adr);
 	{
 		super(loop, TransportType.UDP);
 
-		_socket = new UdpSocket(family);
+		_socket = collieAllocator.make!UdpSocket(family);
 
 		_socket.blocking = true;
-		_readBuffer = new ubyte[UDP_READ_BUFFER_SIZE];
+		_readBuffer = makeArray!ubyte(collieAllocator,UDP_READ_BUFFER_SIZE);
 		_event = AsyncEvent.create(AsynType.UDP, this, _socket.handle, true, false,
 			false);
 		static if(IO_MODE.iocp == IOMode)
@@ -48,7 +48,7 @@ alias UDPReadCallBack = void delegate(ubyte[] buffer, Address adr);
 			_iocpBuffer.buf = cast(char*) _readBuffer.ptr;
 			_iocpread.event = _event;
 			_iocpread.operationType = IOCP_OP_TYPE.read;
-
+    
 			if(family == AddressFamily.INET)
 				_bindddr = new InternetAddress(InternetAddress.PORT_ANY);
 			else if(family == AddressFamily.INET6)
@@ -65,14 +65,14 @@ alias UDPReadCallBack = void delegate(ubyte[] buffer, Address adr);
             AsyncEvent.free(_event);
             _readBuffer = null;
         }
-        _socket.destroy;
         if (_event.isActive)
-        {
             eventLoop.delEvent(_event);
+        dispose(collieAllocator,_socket);
+        dispose(collieAllocator,_readBuffer);
+        static if(IO_MODE.iocp == IOMode){
+            if(_bindddr)
+                dispose(collieAllocator,_bindddr);
         }
-        import core.memory;
-
-        GC.free(_readBuffer.ptr);
     }
 
     @property reusePort(bool use)
@@ -196,10 +196,14 @@ protected:
 			}
 			else
 			{
+                if(_readAddr is null)
+                    _readAddr = createAddress();
                 auto len = _socket.receiveFrom(_readBuffer, _readAddr);
                 if (len <= 0)
                     return;
+                scope(exit) _readAddr = null;
                 _readCallBack(_readBuffer[0 .. len], _readAddr);
+                
 			}
         }
         catch (Exception e)
@@ -229,10 +233,10 @@ package:
 		{
 			if(remoteAddrLen == 32){
 				sockaddr_in * addr = cast(sockaddr_in *)(&remoteAddr);
-				_readAddr = new InternetAddress(*addr);
+				_readAddr = collieAllocator.make!InternetAddress(*addr);
 			}else{
 				sockaddr_in6 * addr = cast(sockaddr_in6 *)(&remoteAddr);
-				_readAddr = new Internet6Address(*addr);
+				_readAddr = collieAllocator.make!Internet6Address(*addr);
 			}
 		}
 
@@ -282,6 +286,27 @@ private:
     AsyncEvent* _event;
     ubyte[] _readBuffer;
     UDPReadCallBack _readCallBack;
+
+protected final Address createAddress() nothrow
+    {
+        Address result;
+        collectException( {
+            switch (_socket.addressFamily)
+            {
+            case AddressFamily.INET:
+                result = collieAllocator.make!InternetAddress();
+                break;
+
+            case AddressFamily.INET6:
+                result = collieAllocator.make!Internet6Address();
+                break;
+
+            default:
+                result = collieAllocator.make!UnknownAddress();
+            }
+        }());
+        return result;
+    }
 }
 
 unittest

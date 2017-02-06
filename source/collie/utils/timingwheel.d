@@ -9,26 +9,37 @@
  *
  */
 module collie.utils.timingwheel;
+import std.experimental.allocator;
+import smartref.common;
 
+alias TimingWheel = ITimingWheel!SmartGCAllocator;
 /**
     Timing Wheel manger Class
 */
-@safe final class TimingWheel
+@trusted final class ITimingWheel(Allocator)
 {
     /**
         constructor
         Params:
             wheelSize =  the Wheel's element router.
     */
-    this(uint wheelSize)
-    {
-        if (wheelSize == 0)
-            wheelSize = 2;
-        _list = new NullWheelTimer[wheelSize];
-        for (int i = 0; i < wheelSize; ++i)
-        {
-            _list[i] = new NullWheelTimer();
+    static if (stateSize!Allocator == 0){
+        this(uint wheelSize){
+            _init(wheelSize);
         }
+    } else {
+        this(uint wheelSize,auto ref Allocator alloc){
+            _alloc = alloc;
+            _init(wheelSize);
+        }
+    }
+
+    ~this(){
+        foreach(ref NullWheelTimer tm ; _list){
+            _alloc.dispose(tm);
+            tm = null;
+        }
+        _alloc.dispose(_list);
     }
 
     /**
@@ -112,8 +123,19 @@ protected:
     }
 
 private:
+    void _init(uint wheelSize){
+        if (wheelSize == 0)
+        wheelSize = 2;
+            _list = ()@trusted{return makeArray!NullWheelTimer(_alloc,wheelSize);}();
+        for (int i = 0; i < wheelSize; ++i)
+            _list[i] = _alloc.make!NullWheelTimer();
+    }
     NullWheelTimer[] _list;
     size_t _now;
+    static if (stateSize!Allocator == 0)
+        alias _alloc = Allocator.instance;
+    else
+        Allocator _alloc;
 }
 
 /**

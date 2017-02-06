@@ -21,6 +21,10 @@
             ]
         }
     },
+    "dependencies" : {
+        "smartref": "~>0.0.2",
+        "emsi_containers": "~>0.5.3"
+    },
     "configurations": [
         {
             "name": "default"

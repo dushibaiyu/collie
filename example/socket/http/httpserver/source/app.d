@@ -88,7 +88,11 @@ RequestHandler newHandler(RequestHandler,HTTPMessage)
 
 void main()
 {
-    
+version(Windows) {
+    import core.sys.windows.wincon;
+    SetConsoleOutputCP(65001);
+  }
+
     writeln("Edit source/app.d to start your project.");
     globalLogLevel(LogLevel.warning);
 	trace("----------");

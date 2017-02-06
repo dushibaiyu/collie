@@ -29,3 +29,8 @@ core
 *.exe
 *.dll
 __test__*__
+将删除 .dlangidews
+将删除 .dlangidews.wssettings
+将删除 collie.iml
+将删除 collie.settings
+将删除 source/collie/common.d
