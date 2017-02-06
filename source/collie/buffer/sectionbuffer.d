@@ -19,6 +19,7 @@ import std.experimental.allocator;
 import std.experimental.allocator.gc_allocator;
 import std.experimental.logger;
 
+import collie.common;
 import collie.buffer;
 import collie.utils.vector;
 import collie.utils.bytes;
@@ -32,12 +33,13 @@ import collie.utils.bytes;
 
 final class SectionBuffer : Buffer
 {
-    alias BufferVector = Vector!(ubyte[]); //Mallocator);
+    alias BufferVector = Vector!(ubyte[],IAllocator,false); //Mallocator);
 
-    this(size_t sectionSize, IAllocator clloc = _processAllocator)
+    this(size_t sectionSize, IAllocator clloc = collieAllocator)
     {
         _alloc = clloc;
         _sectionSize = sectionSize;
+        _buffer = BufferVector(32,_alloc);
     }
 
     ~this()
