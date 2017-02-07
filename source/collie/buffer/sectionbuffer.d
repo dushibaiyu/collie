@@ -482,7 +482,7 @@ unittest
 
     writeln("\r\nswitch \r\n");
 
-    SectionBuffer.BufferVector tary;
+    SectionBuffer.BufferVector tary = SectionBuffer.BufferVector(processAllocator);
     buf.swap(tary);
     writeln("buffer  size:", buf.length);
     writeln("buffer max size:", buf.maxSize());
