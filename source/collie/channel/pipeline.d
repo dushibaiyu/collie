@@ -15,6 +15,7 @@ import std.variant;
 import std.functional;
 
 import collie.utils.vector;
+import collie.channel.common;
 import collie.channel.handler;
 import collie.channel.handlercontext;
 import collie.channel.exception;
@@ -26,13 +27,13 @@ interface PipelineManager
     void refreshTimeout();
 }
 
-abstract class PipelineBase
+abstract class PipelineBase : DEnableSharedFromThis!PipelineBase
 {
     this()
     {
-        _ctxs = 		Vector!(PipelineContext)(8);
-        _inCtxs = 	Vector!(PipelineContext)(8);
-        _outCtxs = 	Vector!(PipelineContext)(8);
+        _ctxs = 	DVector!(DSharedRef!PipelineContext)(8,collieAllocator);
+        _inCtxs = 	DVector!(PipelineContext)(8,collieAllocator);
+        _outCtxs = 	DVector!(PipelineContext)(8,collieAllocator);
     }
 
     ~this()
@@ -61,7 +62,7 @@ abstract class PipelineBase
     }
 
     pragma(inline)
-    @property final void transport(AsyncTransport transport)
+    @property final void transport(ref DSharedRef!AsyncTransport transport)
     {
         _transport = transport;
     }
@@ -71,17 +72,29 @@ abstract class PipelineBase
     {
         return _transport;
     }
-
+/*
     pragma(inline)
     final PipelineBase addBack(H)(H handler)
     {
-        return addHelper(new ContextType!(H)(this, handler), false);
+        return addHelper(makeISharedRef!(ContextType!(H))(collieAllocator,sharedFromThis(), DSharedRef!H(handler)), false);
     }
 
     pragma(inline)
     final PipelineBase addFront(H)(H handler)
     {
-        return addHelper(new ContextType!(H)(this, handler), true);
+        return addHelper(makeISharedRef!(ContextType!(H))(collieAllocator,sharedFromThis(), DSharedRef!H(handler)), true);
+    }
+*/
+    pragma(inline)
+    final PipelineBase addBack(H)(ref DSharedRef!H handler)
+    {
+        return addHelper!(ContextType!(H))(makeISharedRef!(ContextType!(H))(collieAllocator,sharedFromThis(), handler), false);
+    }
+
+    pragma(inline)
+    final PipelineBase addFront(H)(ref DSharedRef!H handler)
+    {
+        return addHelper!(ContextType!(H))(makeISharedRef!(ContextType!(H))(collieAllocator,sharedFromThis(), handler), true);
     }
 
     pragma(inline)
@@ -121,23 +134,23 @@ abstract class PipelineBase
     pragma(inline)
     final auto getHandler(H)(int i)
     {
-        getContext!H(i).handler;
+        getContext!H(i).getHandler();
     }
 
     final auto getHandler(H)()
     {
         auto ctx = getContext!H();
         if (ctx)
-            return ctx.handler;
+            return ctx.getHandler();
         return null;
     }
 
     pragma(inline)
     auto getContext(H)(int i)
     {
-        auto ctx = cast(ContextType!H)(_ctxs[i]);
+        auto ctx = (_ctxs[i]).castTo(ContextType!H)();
         assert(ctx);
-        return ctx;
+        return ctx.data();
     }
 
     auto getContext(H)()
@@ -146,8 +159,8 @@ abstract class PipelineBase
         {
             auto tctx = _ctxs.at(i);
             auto ctx = cast(ContextType!H)(tctx);
-            if (ctx)
-                return ctx;
+            if (!ctx.isNull())
+                return ctx.data();
         }
         return null;
     }
@@ -158,33 +171,33 @@ abstract class PipelineBase
     {
         foreach (i; 0 .. _ctxs.length)
         {
-            auto ctx = _ctxs.at(i);
-            ctx.detachPipeline();
+            _ctxs[i].data().detachPipeline();
         }
     }
 
 protected:
-    Vector!(PipelineContext) _ctxs = void;
-    Vector!(PipelineContext) _inCtxs = void;
-    Vector!(PipelineContext) _outCtxs = void;
+    DVector!(DSharedRef!PipelineContext) _ctxs = void;
+    DVector!(PipelineContext) _inCtxs = void;
+    DVector!(PipelineContext) _outCtxs = void;
 
     bool _isFinalize = true;
 private:
     PipelineManager _manager = null;
-    AsyncTransport _transport;
+    DSharedRef!AsyncTransport _transport;
     //	AsynTransportInfo _transportInfo;
 
-    final PipelineBase addHelper(Context)(Context ctx, bool front)
+    final PipelineBase addHelper(Context)(DSharedRef!Context ctx, bool front)
     {
         _isFinalize = false;
-        front ? _ctxs.insertBefore(ctx) : _ctxs.insertBack(ctx);
+        DSharedRef!PipelineContext tctx = ctx.castTo!PipelineContext();
+        front ? _ctxs.insertBefore(tctx) : _ctxs.insertBack(tctx);
         if (Context.dir == HandlerDir.BOTH || Context.dir == HandlerDir.IN)
         {
-            front ? _inCtxs.insertBefore(ctx) : _inCtxs.insertBack(ctx);
+            front ? _inCtxs.insertBefore(ctx.data()) : _inCtxs.insertBack(ctx.data());
         }
         if (Context.dir == HandlerDir.BOTH || Context.dir == HandlerDir.OUT)
         {
-            front ? _outCtxs.insertBefore(ctx) : _outCtxs.insertBack(ctx);
+            front ? _outCtxs.insertBefore(ctx.data()) : _outCtxs.insertBack(ctx.data());
         }
         return this;
     }
@@ -195,8 +208,8 @@ private:
 
         for (size_t i = 0; i < _ctxs.length; ++i)
         {
-            auto ctx = cast(ContextType!H) _ctxs[i];
-            if (ctx && (!checkEqual || ctx.getHandler() == handler))
+            auto ctx = _ctxs[i].castTo!(ContextType!H)();
+            if (!ctx.isNull() && (!checkEqual || ctx.getHandler() is handler))
             {
                 removeAt(i);
                 removed = true;
@@ -215,7 +228,7 @@ private:
     final void removeAt(size_t site)
     {
         _isFinalize = false;
-        PipelineContext rctx = _ctxs[site];
+        PipelineContext rctx = _ctxs[site].data();
         rctx.detachPipeline();
         _ctxs.removeSite(site);
 
@@ -245,19 +258,19 @@ private:
 
 final class Pipeline(R, W = void) : PipelineBase
 {
-    alias Ptr = Pipeline!(R, W);
+    alias Ptr = DSharedRef!(Pipeline!(R, W));
 
     static Ptr create()
     {
-        return new Ptr();
+        return makeISharedRef!(Pipeline!(R, W))(collieAllocator);
     }
 
     ~this()
     {
-//        if (!_isStatic)  // USE GC, maybe the contex will free before pipeline
-//        {
-//            detachHandlers();
-//        }
+       if (!_isStatic)  // USE GC, maybe the contex will free before pipeline
+       {
+           detachHandlers();
+       }
     }
 
     pragma(inline)
@@ -414,11 +427,11 @@ private:
 
 abstract shared class PipelineFactory(PipeLine)
 {
-    PipeLine newPipeline(TCPSocket transport);
+    PipeLine.Ptr newPipeline(ref DSharedRef!TCPSocket transport);
 }
 
 alias AcceptPipeline = Pipeline!(Socket, uint);
 abstract shared class AcceptPipelineFactory
 {
-    AcceptPipeline newPipeline(Acceptor acceptor);
+    AcceptPipeline.Ptr newPipeline(ref DSharedRef!Acceptor acceptor);
 }

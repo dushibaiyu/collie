@@ -8,7 +8,8 @@
  * Licensed under the Apache-2.0 License.
  *
  */
-
+ 
+// TODO: REWRITE TO SUPPORT MANGET MENONY, 要重写替代掉内存管理
 module collie.socket.selector.select;
 
 import core.time;

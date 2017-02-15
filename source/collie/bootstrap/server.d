@@ -29,7 +29,7 @@ final class ServerBootstrap(PipeLine)
         _loop = loop;
     }
 
-    auto pipeline(shared AcceptPipelineFactory factory)
+    auto pipeline(DSharedRef!(shared AcceptPipelineFactory) factory)
     {
         _acceptorPipelineFactory = factory;
         return this;
@@ -41,7 +41,7 @@ final class ServerBootstrap(PipeLine)
 	       return this;
     }
 
-    auto childPipeline(shared PipelineFactory!PipeLine factory)
+    auto childPipeline(DSharedRef!(shared PipelineFactory!PipeLine) factory)
     {
         _childPipelineFactory = factory;
         return this;
@@ -94,8 +94,11 @@ final class ServerBootstrap(PipeLine)
 		if (!_listening)
             return;
 		scope(exit)_listening = false;
-        foreach (ref accept; _serverlist)
+        auto next = _mainAccept._next;
+        while(next)
         {
+            auto accept = next;
+            next = next._next;
             accept.stop();
         }
         _mainAccept.stop();
@@ -149,8 +152,9 @@ final class ServerBootstrap(PipeLine)
 			foreach (loop; _group)
 			{
 				auto acceptor = creatorAcceptor(loop);
+                acceptor._next = _mainAccept._next;
+                _mainAccept._next = acceptor;
 				acceptor.initialize();
-				_serverlist ~= acceptor;
 				if (beat)
 					acceptor.startTimingWhile(wheel, time);
 			}
@@ -167,7 +171,7 @@ final class ServerBootstrap(PipeLine)
 protected:
     auto creatorAcceptor(EventLoop loop)
     {
-        auto acceptor = new Acceptor(loop, _address.addressFamily == AddressFamily.INET6);
+        auto acceptor = collieAllocator.make!Acceptor(loop, _address.addressFamily == AddressFamily.INET6);
 		if(_rusePort)
         	acceptor.reusePort = _rusePort;
         acceptor.bind(_address);
@@ -178,9 +182,10 @@ protected:
 			optLinger.time = 0;
 			acceptor.setOption(SocketOptionLevel.SOCKET, SocketOption.LINGER, optLinger);
 		}
-        AcceptPipeline pipe;
-        if (_acceptorPipelineFactory)
-            pipe = _acceptorPipelineFactory.newPipeline(acceptor);
+        auto accept = DSharedRef!Acceptor(collieAllocator,acceptor);
+        DSharedRef!AcceptPipeline pipe = void;
+        if (!_acceptorPipelineFactory.isNull)
+            pipe = _acceptorPipelineFactory.newPipeline(accept);
         else
             pipe = AcceptPipeline.create();
 
@@ -195,7 +200,7 @@ protected:
             }
         }
 
-        return new ServerAcceptor!(PipeLine)(acceptor, pipe, _childPipelineFactory,
+        return collieAllocator.make!(ServerAcceptorImpl!(PipeLine))(accept, pipe, _childPipelineFactory,
             ctx);
     }
 
@@ -232,13 +237,12 @@ protected:
     }
 
 private:
-    shared AcceptPipelineFactory _acceptorPipelineFactory;
-    shared PipelineFactory!PipeLine _childPipelineFactory;
+    DSharedRef!(shared AcceptPipelineFactory) _acceptorPipelineFactory;
+    DSharedRef!(shared PipelineFactory!PipeLine) _childPipelineFactory;
 
-    ServerAcceptor!(PipeLine) _mainAccept;
+    ServerAcceptorImpl!(PipeLine) _mainAccept;
     EventLoop _loop;
 
-    ServerAcceptor!(PipeLine)[] _serverlist;
     EventLoopGroup _group;
 
 	bool _listening = false;
@@ -250,28 +254,48 @@ private:
     ServerSSLConfig _sslConfig = null;
 }
 
-private:
+//private:
 
 import std.functional;
 import collie.utils.timingwheel;
 import collie.utils.memory;
 
-final class ServerAcceptor(PipeLine) : InboundHandler!(Socket)
+final class ServerAcceptorImpl(PipeLine) : InboundHandler!(Socket)
 {
-    this(Acceptor acceptor, AcceptPipeline pipe,
-        shared PipelineFactory!PipeLine clientPipeFactory, SSL_CTX* ctx = null)
+    alias TimerWheel = ITimingWheel!IAllocator;
+
+    this(ref DSharedRef!Acceptor acceptor,ref DSharedRef!AcceptPipeline pipe,
+      ref DSharedRef!(shared PipelineFactory!PipeLine) clientPipeFactory, SSL_CTX* ctx = null)
     {
         _acceptor = acceptor;
         _pipeFactory = clientPipeFactory;
-        pipe.addBack(this);
+        auto sref = DSharedRef!(ServerAcceptorImpl!(PipeLine))(collieAllocator,this);
+        pipe.addBack!(ServerAcceptorImpl!(PipeLine))(sref);
         pipe.finalize();
         _pipe = pipe;
-        _pipe.transport(_acceptor);
+        auto asyn = acceptor.castTo!AsyncTransport();
+        _pipe.transport(asyn);
         _acceptor.setCallBack(&acceptCallBack);
         _sslctx = ctx;
-		_list = new ServerConnection!PipeLine();
+		_list = collieAllocator.make!(ServerConnectionImpl!PipeLine)();
 		version(USE_SSL)
-			_sharkList = new SSLHandShark();
+			_sharkList = collieAllocator.make!SSLHandShark();
+    }
+    ~this(){
+        collieAllocator.dispose(_list);
+        version(USE_SSL) {
+             SSLHandShark sh = _sharkList.next;
+             while(sh){
+                 SSLHandShark del = sh;
+                 sh = del.next;
+                  collieAllocator.dispose(del);
+             }
+             collieAllocator.dispose(_sharkList);
+        }
+        if(_timer)
+			dispose(collieAllocator,_timer);
+        if(_wheel)
+			dispose(collieAllocator,_wheel);
     }
 
     pragma(inline, true) void initialize()
@@ -296,7 +320,7 @@ final class ServerAcceptor(PipeLine) : InboundHandler!(Socket)
 					BIO * writeBIO = BIO_new(BIO_s_mem());
 					SSL_set_bio(ssl, readBIO, writeBIO);
 					SSL_set_accept_state(ssl);
-					auto asynssl = new SSLSocket(_acceptor.eventLoop, msg, ssl,readBIO,writeBIO);
+					auto asynssl = collieAllocator.make!SSLSocket(_acceptor.eventLoop, msg, ssl,readBIO,writeBIO);
 				} else {
                     if (SSL_set_fd(ssl, msg.handle()) < 0)
                     {
@@ -306,9 +330,9 @@ final class ServerAcceptor(PipeLine) : InboundHandler!(Socket)
                         return;
                     }
                     SSL_set_accept_state(ssl);
-                    auto asynssl = new SSLSocket(_acceptor.eventLoop, msg, ssl);
+                    auto asynssl = collieAllocator.make!SSLSocket(_acceptor.eventLoop, msg, ssl);
 				}
-                    auto shark = new SSLHandShark(asynssl, &doHandShark);
+                    auto shark = collieAllocator.make!SSLHandShark(asynssl, &doHandShark);
 
 					shark.next = _sharkList.next;
 					if(shark.next) shark.next.prev = shark;
@@ -319,12 +343,12 @@ final class ServerAcceptor(PipeLine) : InboundHandler!(Socket)
             }
             else
             {
-                auto asyntcp = new TCPSocket(_acceptor.eventLoop, msg);
+                auto asyntcp = collieAllocator.make!TCPSocket(_acceptor.eventLoop, msg);
                 startSocket(asyntcp);
             }
         } else
         {
-            auto asyntcp = new TCPSocket(_acceptor.eventLoop, msg);
+            auto asyntcp = collieAllocator.make!TCPSocket(_acceptor.eventLoop, msg);
             startSocket(asyntcp);
         }
     }
@@ -352,12 +376,12 @@ final class ServerAcceptor(PipeLine) : InboundHandler!(Socket)
     }
 
 protected:
-    pragma(inline) void remove(ServerConnection!PipeLine conn)
+    pragma(inline) void remove(ServerConnectionImpl!PipeLine conn)
     {
 		conn.prev.next = conn.next;
 		if(conn.next)
 			conn.next.prev = conn.prev;
-        gcFree(conn);
+        collieAllocator.dispose(conn);
     }
 
     void acceptCallBack(Socket soct)
@@ -374,9 +398,9 @@ protected:
     {
         if (_timer)
             return;
-        _timer = new Timer(_acceptor.eventLoop);
+        _timer = collieAllocator.make!Timer(_acceptor.eventLoop);
         _timer.setCallBack(&doWheel);
-        _wheel = new TimingWheel(whileSize);
+        _wheel = collieAllocator.make!TimerWheel(whileSize,collieAllocator);
         _timer.start(time);
     }
 
@@ -393,7 +417,7 @@ protected:
 			shark.prev.next = shark.next;
 			if(shark.next) shark.next.prev = shark.prev;
             scope (exit)
-                delete shark;
+                collieAllocator.dispose(shark);
             if (sock)
             {
                 sock.setHandshakeCallBack(null);
@@ -404,14 +428,15 @@ protected:
 
     void startSocket(TCPSocket sock)
     {
-        auto pipe = _pipeFactory.newPipeline(sock);
-        if (!pipe)
+        auto tsock = DSharedRef!(TCPSocket)(collieAllocator,sock);
+        auto pipe = _pipeFactory.newPipeline(tsock);
+        if (pipe.isNull())
         {
-            gcFree(sock);
+            collieAllocator.dispose(sock);
             return;
         }
         pipe.finalize();
-        auto con = new ServerConnection!PipeLine(pipe);
+        auto con = collieAllocator.make!(ServerConnectionImpl!PipeLine)(pipe);
         con.serverAceptor = this;
 
 		con.next = _list.next;
@@ -426,26 +451,29 @@ protected:
     }
 
 private:
-   // int[ServerConnection!PipeLine] _list;
-	ServerConnection!PipeLine _list;
+	ServerConnectionImpl!PipeLine _list;
 
 	version(USE_SSL)
     {
 		SSLHandShark _sharkList;
     }
 
-    Acceptor _acceptor;
+    DSharedRef!Acceptor _acceptor;
     Timer _timer;
-    TimingWheel _wheel;
-    AcceptPipeline _pipe;
-    shared PipelineFactory!PipeLine _pipeFactory;
+    TimerWheel _wheel;
+    DSharedRef!AcceptPipeline _pipe;
+    DSharedRef!(shared PipelineFactory!PipeLine) _pipeFactory;
 
     SSL_CTX* _sslctx = null;
+
+    ServerAcceptorImpl!PipeLine _next;
 }
 
-@trusted final class ServerConnection(PipeLine) : WheelTimer, PipelineManager
+@trusted final class ServerConnectionImpl(PipeLine) : IWheelTimer!IAllocator, PipelineManager
 {
-    this(PipeLine pipe)
+    this(){}
+
+    this(ref DSharedRef!PipeLine pipe)
     {
         _pipe = pipe;
         _pipe.pipelineManager = this;
@@ -470,7 +498,7 @@ private:
         return _manger;
     }
 
-    pragma(inline, true) @property serverAceptor(ServerAcceptor!PipeLine manger)
+    pragma(inline, true) @property serverAceptor(ServerAcceptorImpl!PipeLine manger)
     {
         _manger = manger;
     }
@@ -478,7 +506,7 @@ private:
     override void deletePipeline(PipelineBase pipeline)
     {
         pipeline.pipelineManager = null;
-        _pipe = null;
+        _pipe.clear();
         stop();
         _manger.remove(this);
     }
@@ -493,12 +521,11 @@ private:
 		collectException(_pipe.timeOut());
     }
 private:
-	this(){}
-	ServerConnection!PipeLine prev;
-	ServerConnection!PipeLine next;
+	ServerConnectionImpl!PipeLine prev;
+	ServerConnectionImpl!PipeLine next;
 private:
-    ServerAcceptor!PipeLine _manger;
-    PipeLine _pipe;
+    ServerAcceptorImpl!PipeLine _manger;
+    DSharedRef!PipeLine _pipe;
 }
 
 version(USE_SSL)
@@ -517,6 +544,8 @@ version(USE_SSL)
 
         ~this()
         {
+            if(_socket)
+                collieAllocator.dispose(_socket);
         }
 
     protected:
@@ -537,6 +566,7 @@ version(USE_SSL)
             _socket.setCloseCallBack(null);
             _socket.setReadCallBack(null);
             _socket.setHandshakeCallBack(null);
+            collieAllocator.dispose(_socket);
             _socket = null;
             _cback(this, _socket);
         }

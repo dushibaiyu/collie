@@ -35,10 +35,10 @@ import collie.utils.task;
 	~this(){
 		if(_acceptor)
 			dispose(collieAllocator,_acceptor);
-		if(_wheel)
-			dispose(collieAllocator,_wheel);
 		if(_timer)
 			dispose(collieAllocator,_timer);
+		if(_wheel)
+			dispose(collieAllocator,_wheel);
 		if(_bind)
 			dispose(collieAllocator,_bind);
 	}

@@ -13,6 +13,7 @@ module collie.channel.handlercontext;
 import std.conv;
 import std.functional;
 
+import collie.channel.common;
 import collie.channel.pipeline;
 import collie.channel.handler;
 import collie.channel.exception;
@@ -32,9 +33,9 @@ interface HandlerContext(In, Out)
     void fireWrite(Out msg, HandlerTheCallBack cback = null);
     void fireClose();
 
-    @property PipelineBase pipeline();
+    @property DWeakRef!PipelineBase pipeline();
 
-    @property AsyncTransport transport();
+    @property DSharedRef!AsyncTransport transport();
 
 }
 
@@ -46,9 +47,9 @@ interface InboundHandlerContext(In)
     void fireTransportActive();
     void fireTransportInactive();
 
-    @property PipelineBase pipeline();
+    @property DWeakRef!PipelineBase pipeline();
 
-    @property AsyncTransport transport();
+    @property DSharedRef!AsyncTransport transport();
 }
 
 interface OutboundHandlerContext(Out)
@@ -58,9 +59,9 @@ interface OutboundHandlerContext(Out)
     void fireWrite(Out msg, OutboundTheCallBack cback = null);
     void fireClose();
 
-    @property PipelineBase pipeline();
+    @property DWeakRef!PipelineBase pipeline();
 
-    @property AsyncTransport transport();
+    @property DSharedRef!AsyncTransport transport();
 }
 
 enum HandlerDir
@@ -83,7 +84,13 @@ class ContextImplBase(H, Context) : PipelineContext
     }
 
     pragma(inline,true)
-    final void initialize(PipelineBase pipeline, H handler)
+    final @property auto getHandler()
+    {
+        return _handler.data();
+    }
+
+    pragma(inline,true)
+    final void initialize(ref DSharedRef!PipelineBase pipeline, ref DSharedRef!H handler)
     {
         _pipeline = pipeline;
         _handler = handler;
@@ -96,16 +103,16 @@ class ContextImplBase(H, Context) : PipelineContext
         if (!_attached)
         {
             attachContext(_handler, _impl);
-            _handler.attachPipeline(_impl);
+            getHandler().attachPipeline(_impl);
             _attached = true;
         }
     }
 
     final override void detachPipeline()
     {
-        _handler.detachPipeline(_impl);
+        getHandler().detachPipeline(_impl);
         _attached = false;
-        _pipeline = null;
+        _pipeline.clear();
     }
 
     final override void setNextIn(PipelineContext ctx)
@@ -152,8 +159,8 @@ class ContextImplBase(H, Context) : PipelineContext
 
 protected:
     Context _impl;
-    PipelineBase _pipeline;
-    H _handler;
+    DWeakRef!PipelineBase _pipeline;
+    DSharedRef!H _handler;
     InboundLink!(H.rout) _nextIn = null;
     OutboundLink!(H.wout) _nextOut = null;
 
@@ -168,7 +175,7 @@ mixin template CommonContextImpl()
     alias Win = H.win;
     alias Wout = H.wout;
 
-    this(PipelineBase pipeline, H handler)
+    this(ref DSharedRef!PipelineBase pipeline, ref DSharedRef!H handler)
     {
         _impl = this;
         initialize(pipeline, handler);
@@ -181,13 +188,13 @@ mixin template CommonContextImpl()
     }
 
     pragma(inline)
-    final override @property AsyncTransport transport()
+    final override @property DSharedRef!AsyncTransport transport()
     {
-        return _pipeline is null ? null : pipeline.transport();
+        return _pipeline.data().transport();
     }
 
     pragma(inline)
-    final override @property PipelineBase pipeline()
+    final override @property  DWeakRef!PipelineBase pipeline()
     {
         return _pipeline;
     }
@@ -235,21 +242,25 @@ mixin template ReadContextImpl()
     // InboundLink overrides
     override void read(Rin msg)
     {
+        auto pip = pipeline.toStrongRef();
         _handler.read(this, forward!(msg));
     }
 
     override void timeOut()
     {
+        auto pip = pipeline.toStrongRef();
         this._handler.timeOut(this);
     }
 
     override void transportActive()
     {
+        auto pip = pipeline.toStrongRef();
         this._handler.transportActive(this);
     }
 
     override void transportInactive()
     {
+        auto pip = pipeline.toStrongRef();
         _handler.transportInactive(this);
     }
 }
@@ -291,12 +302,14 @@ mixin template WriteContextImpl()
     pragma(inline)
     override void write(Win msg, ThisCallBack cback = null)
     {
+        auto pip = pipeline.toStrongRef();
         _handler.write(this, forward!(msg, cback));
     }
 
     pragma(inline)
     override void close()
     {
+        auto pip = pipeline.toStrongRef();
         _handler.close(this);
     }
 

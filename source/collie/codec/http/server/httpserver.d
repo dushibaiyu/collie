@@ -241,7 +241,7 @@ protected:
 				}
 			}
 		} else {
-			socket = new TCPSocket(loop,sock);
+			socket = collieAllocator.make!TCPSocket(loop,sock);
 		}
 		return new HttpHandlerConnection(socket,this,
 			new HTTP1XCodec(TransportDirection.DOWNSTREAM,cast(uint)_options.maxHeaderSize));
@@ -289,9 +289,9 @@ class ServerHandlerFactory : PipelineFactory!HTTPPipeline
 	{
 		_server = cast(typeof(_server))server;
 	}
-	override HTTPPipeline newPipeline(TCPSocket transport) {
+	override DSharedRef!HTTPPipeline newPipeline(ref DSharedRef!TCPSocket transport) {
 		auto pipe = HTTPPipeline.create();
-		pipe.addBack(new TCPSocketHandler(transport));
+		pipe.addBack(new TCPSocketHandler(transport.data()));
 		pipe.addBack(new HttpHandlerPipeline(cast(HTTPServer)_server,
 				new HTTP1XCodec(TransportDirection.DOWNSTREAM,_server.maxHeaderSize)));
 		pipe.finalize();
@@ -309,10 +309,10 @@ class ServerAccpeTFactory : AcceptPipelineFactory
 		_conf = cast(typeof(_conf))config;
 	}
 
-	override AcceptPipeline newPipeline(Acceptor acceptor) {
+	override DSharedRef!AcceptPipeline newPipeline(ref DSharedRef!Acceptor acceptor) {
 		trace("--new accpetPipeLine");
-		AcceptPipeline pipe = AcceptPipeline.create();
-		HTTPServer.setAcceptorConfig(_conf,acceptor);
+		auto pipe = AcceptPipeline.create();
+		HTTPServer.setAcceptorConfig(_conf,acceptor.data());
 		return pipe;
 	}
 

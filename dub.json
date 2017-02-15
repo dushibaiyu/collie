@@ -22,7 +22,7 @@
         }
     },
     "dependencies" : {
-        "smartref": "~>0.0.2",
+        "smartref": {"path":"../SmartRef/"},
         "emsi_containers": "~>0.5.3"
     },
     "configurations": [

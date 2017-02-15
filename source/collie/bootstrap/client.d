@@ -41,7 +41,7 @@ final class ClientBootstrap(PipeLine) : PipelineManager
 		_oncreator = cback;
 	}
 	
-	auto pipelineFactory(shared PipelineFactory!PipeLine pipeFactory)
+	auto pipelineFactory(DSharedRef!(shared PipelineFactory!PipeLine) pipeFactory)
 	{
 		_pipelineFactory = pipeFactory;
 		return this;
@@ -56,7 +56,7 @@ final class ClientBootstrap(PipeLine) : PipelineManager
 
 	void connect(Address to, ConnCallBack cback = null)
 	{
-		if (_pipelineFactory is null)
+		if (_pipelineFactory.isNull)
 			throw new NeedPipeFactoryException(
 				"Pipeline must be not null! Please set Pipeline frist!");
 		if (_info.client)
@@ -177,8 +177,8 @@ protected:
 	
 private:
 	EventLoop _loop;
-	PipeLine _pipe;
-	shared PipelineFactory!PipeLine _pipelineFactory;
+	DSharedRef!PipeLine _pipe;
+	DSharedRef!(shared PipelineFactory!PipeLine) _pipelineFactory;
 	Timer _timer = null;
 	uint _timeOut = 0;
 	uint _tryCount;

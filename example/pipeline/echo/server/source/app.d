@@ -44,10 +44,10 @@ public:
 shared class EchoPipelineFactory : PipelineFactory!EchoPipeline
 {
 public:
-    override EchoPipeline newPipeline(TCPSocket sock){
+    override EchoPipeline.Ptr newPipeline(ref DSharedRef!TCPSocket sock){
         auto pipeline = EchoPipeline.create();
-        pipeline.addBack(new TCPSocketHandler(sock));
-        pipeline.addBack(new EchoHandler());
+        pipeline.addBack(makeISharedRef!TCPSocketHandler(collieAllocator,sock.data));
+        pipeline.addBack(makeISharedRef!EchoHandler(collieAllocator));
         pipeline.finalize();
         return pipeline;
     }
